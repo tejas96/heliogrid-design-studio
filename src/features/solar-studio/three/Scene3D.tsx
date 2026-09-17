@@ -464,6 +464,7 @@ import {
   Crosshair,
   Focus,
   Footprints,
+  Hand,
   Maximize2,
   Minimize2,
   Ruler,
@@ -1125,6 +1126,16 @@ export function Scene3D({
    * still works on a keyboard, mode or no mode.
    */
   const [boxSelect, setBoxSelect] = useState(false);
+  /**
+   * The PAN TOOL: a left drag moves the camera sideways instead of orbiting.
+   *
+   * The right button has always trucked, and that is what a CAD user reaches
+   * for — but a laptop trackpad makes a right-drag awkward and a touch screen
+   * has no right button at all, so on those the view could be turned and
+   * zoomed but never shifted. Same tool, same icon and the same place as the
+   * 2D canvas's (components/SatCanvas), so it is one habit across the app.
+   */
+  const [panTool, setPanTool] = useState(false);
   const onWrapPointerDownCapture = (e: React.PointerEvent) => {
     if (!(e.shiftKey || boxSelect) || e.button !== 0) return;
     if ((e.target as HTMLElement).tagName !== 'CANVAS') return; // rails and cards keep their clicks
@@ -2252,16 +2263,28 @@ export function Scene3D({
 
     const views: RadialItem[] = heatmap
       ? []
-      : (
-          [
+      : [
+          {
+            id: 'pan',
+            icon: <Hand />,
+            label: 'Pan',
+            tip: panTool
+              ? 'Stop panning — a drag turns the model again'
+              : 'Pan the view\nDrag to move the model across the screen',
+            active: panTool,
+            onClick: () => setPanTool((v) => !v),
+          } satisfies RadialItem,
+          ...(
+            [
             { id: 'top', icon: <ArrowDown />, label: 'Top', tip: 'Plan\nParallel projection, to scale' },
             { id: 'iso', icon: <Axis3d />, label: 'Iso', tip: 'Isometric view' },
             { id: 'front', icon: <Orbit />, label: 'Front', tip: 'Front elevation\nParallel projection, to scale' },
             { id: 'back', icon: <ChevronsUp />, label: 'Back', tip: 'Back elevation\nParallel projection, to scale' },
             { id: 'left', icon: <ChevronsLeft />, label: 'Left', tip: 'Left elevation\nParallel projection, to scale' },
             { id: 'right', icon: <ChevronsRight />, label: 'Right', tip: 'Right elevation\nParallel projection, to scale' },
-          ] as const
-        ).map((v) => ({ ...v, oneShot: true, onClick: () => goView(v.id as ViewPreset) }));
+            ] as const
+          ).map((v) => ({ ...v, oneShot: true, onClick: () => goView(v.id as ViewPreset) })),
+        ];
 
     const inspect: RadialItem[] = heatmap || !handoffTools
       ? []
@@ -2376,6 +2399,7 @@ export function Scene3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     handoffTools,
+    panTool,
     heatmap,
     designStage,
     solarAccessView,
@@ -2433,6 +2457,9 @@ export function Scene3D({
         background: meshMode
           ? 'radial-gradient(circle at 50% 38%, #1b222e 0%, #0c0f15 60%, #05070a 100%)'
           : '#0a0d12',
+        // the hand says the drag belongs to the view, not to the model. The
+        // rails and cards above set their own, so only the scene gets it.
+        cursor: panTool ? 'grab' : undefined,
         zIndex: 50,
       }}
     >
@@ -2663,7 +2690,9 @@ export function Scene3D({
           polarRotateSpeed={heatmap ? 0 : 1}
           // a parallel projection cannot dolly, so the wheel zooms it instead
           mouseButtons={{
-            left: ACTION.ROTATE,
+            // the pan tool swaps the left button over to truck; the right
+            // button trucks either way, so nothing is taken away
+            left: panTool ? ACTION.TRUCK : ACTION.ROTATE,
             middle: ortho ? ACTION.ZOOM : ACTION.DOLLY,
             right: ACTION.TRUCK,
             wheel: ortho ? ACTION.ZOOM : ACTION.DOLLY,

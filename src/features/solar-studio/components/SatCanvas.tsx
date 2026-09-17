@@ -17,7 +17,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from 'react';
 import { useEffect } from 'react';
-import { Plus, Minus, Maximize2 } from 'lucide-react';
+import { Plus, Minus, Maximize2, Hand } from 'lucide-react';
 import type { XY } from '../types';
 import { SAT_ZOOM, metersPerStaticMap, pickScaleBar, staticSatelliteUrl, zoomCovering } from '../lib/maps';
 
@@ -150,6 +150,20 @@ export const SatCanvas = forwardRef<
 
   const [zoom, setZoom] = useState(fitZoom);
   const [pan, setPan] = useState<XY>({ x: 0, y: 0 });
+  /**
+   * The PAN TOOL: a drag moves the picture, whatever else is going on.
+   *
+   * Panning was already here, but only where the screen had nothing else to do
+   * with the drag (`panEnabled`) or on the middle button. So half-way through
+   * tracing a roof, or with a placement tool up, there was no way to reach the
+   * part of the site that was off screen — and a laptop trackpad has no middle
+   * button to fall back on. With the tool on, the screens are not offered the
+   * down at all: the drag is the viewport's, and a click does nothing rather
+   * than dropping a point where the user meant to grab the map.
+   */
+  const [panTool, setPanTool] = useState(false);
+  /** grabbing hand while the pan drag is live — cursor only */
+  const [grabbing, setGrabbing] = useState(false);
   // A handler that runs before the next render (a finger lifting out of a
   // pinch) must not read the render closure's stale pan, so every write goes
   // through here and leaves the current value in a ref.
@@ -298,9 +312,11 @@ export const SatCanvas = forwardRef<
 
     const m = eventToMeters(e);
     const middle = e.button === 1;
-    const captured = !middle && onCanvasDown?.(m, e);
+    const captured = !middle && !panTool && onCanvasDown?.(m, e);
+    const panning = captured ? false : middle || panTool || panEnabled;
+    if (panning) setGrabbing(true);
     dragRef.current = {
-      mode: captured ? 'custom' : middle || panEnabled ? 'pan' : null,
+      mode: captured ? 'custom' : panning ? 'pan' : null,
       start,
       startPan: panRef.current,
       moved: false,
@@ -318,7 +334,7 @@ export const SatCanvas = forwardRef<
       clientY: d.start.y,
       currentTarget: e.currentTarget,
     });
-    d.mode = onCanvasDown?.(at, e) ? 'custom' : panEnabled ? 'pan' : null;
+    d.mode = !panTool && onCanvasDown?.(at, e) ? 'custom' : panTool || panEnabled ? 'pan' : null;
   }
 
   function move(e: ReactPointerEvent) {
@@ -390,7 +406,10 @@ export const SatCanvas = forwardRef<
 
     const d = dragRef.current;
     const m = eventToMeters(e);
-    if (!d.moved && d.mode !== 'custom' && e.button === 0) onCanvasClick?.(m, e);
+    setGrabbing(false);
+    // With the pan tool up the canvas is a map, not a drawing: a tap that went
+    // nowhere must not start a roof or clear the selection.
+    if (!panTool && !d.moved && d.mode !== 'custom' && e.button === 0) onCanvasClick?.(m, e);
     onCanvasUp?.(m, e);
     dragRef.current = { ...d, mode: null, moved: false };
   }
@@ -400,6 +419,7 @@ export const SatCanvas = forwardRef<
    *  would read as a committed drag. */
   function cancel(e: ReactPointerEvent) {
     ptsRef.current.delete(e.pointerId);
+    setGrabbing(false);
     if (pinchRef.current?.ids.includes(e.pointerId)) pinchRef.current = null;
     if (e.pointerId === primaryRef.current) {
       primaryRef.current = null;
@@ -459,7 +479,9 @@ export const SatCanvas = forwardRef<
             flex: 'none',
             transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
             transformOrigin: 'center',
-            cursor,
+            // the pan tool owns the cursor: the screen's own (crosshair while
+            // drawing, grab over a handle) would be a lie while a drag pans
+            cursor: panTool ? (grabbing ? 'grabbing' : 'grab') : cursor,
             position: 'relative',
             touchAction: 'none',
           }}
@@ -491,13 +513,28 @@ export const SatCanvas = forwardRef<
           </svg>
         </div>
 
-        {/* zoom cluster */}
+        {/* view cluster: the pan tool sits above the zoom pair, the way every
+            map editor stacks them */}
         <div
           className="tool-rail dark"
           style={{ right: 14, bottom: 14 }}
           role="group"
-          aria-label="Zoom controls"
+          aria-label="View controls"
         >
+          <button
+            className={`tool-btn ${panTool ? 'on' : ''}`}
+            data-tip={
+              panTool
+                ? 'Stop panning\nDrawing and picking work again'
+                : 'Pan the view\nDrag to move the map — nothing is drawn or picked'
+            }
+            data-tip-left=""
+            aria-label="Pan the view"
+            aria-pressed={panTool}
+            onClick={() => setPanTool((v) => !v)}
+          >
+            <Hand />
+          </button>
           <button
             className="tool-btn"
             data-tip={'Zoom in\n(scroll wheel or pinch)'}
