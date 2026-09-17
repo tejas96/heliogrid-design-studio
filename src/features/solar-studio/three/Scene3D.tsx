@@ -986,6 +986,35 @@ const NORMAL_BIAS = 0.007;
 // module cannot import its own importer.
 
 /**
+ * How far past its own footprint a design's shadow must be allowed to reach,
+ * as a multiple of the design's height. The real reach is `cot(altitude)`;
+ * these clamp it. MIN is what the box always allowed (a sun at 34°); MAX
+ * holds the whole shadow down to about 9.5°. See `shadowHalf`.
+ */
+const SHADOW_REACH_MIN = 1.5;
+const SHADOW_REACH_MAX = 6;
+
+/** The studio key light's strength with the sun overhead. */
+const STUDIO_KEY_INTENSITY = 1.15;
+/**
+ * How far the studio key may be opened up to hold the floor's brightness as
+ * the sun grazes.
+ *
+ * A cast shadow can only be SEEN as the difference between lit floor and
+ * shadowed floor, and lit floor falls with `sin(altitude)`: measured on the
+ * studio floor at 4 PM, lit read 45/255 against 40 in the shadow — a five-level
+ * difference that is invisible, so the late shadow was being drawn correctly
+ * and nobody could tell. Opening the key up by `1 / sin(altitude)` holds the
+ * lit floor near its noon value and hands the contrast back.
+ *
+ * Capped at 2, because past that the wall the low sun faces blows out — the
+ * tone mapping rolls the highlight off, but only so far. This is the studio's
+ * exposure, not the sun's strength: the geometry of every shadow stays the
+ * real sun's, and the ENGINE's numbers never read this light at all.
+ */
+const STUDIO_GRAZE_MAX = 2;
+
+/**
  * Where the camera was last left, per project.
  *
  * `presetPose` recomputes every preset from the design's bounding sphere on each
@@ -2855,8 +2884,8 @@ export function Scene3D({
         </div>
       )}
 
-      {/* ── sun widget (hidden in mesh/studio & heatmap view) ── */}
-      {!meshMode && !heatmap && (
+      {/* ── sun widget (hidden in heatmap view; the studio studies the sun too) ── */}
+      {!heatmap && (
       <div
         style={{
           position: 'absolute',
@@ -2933,7 +2962,7 @@ export function Scene3D({
       )}
 
       {/* ── sun chart: the year's sun paths over the site's own skyline ── */}
-      {showSunChart && !meshMode && !heatmap && (
+      {showSunChart && !heatmap && (
         <SunChart project={project} date={simDate} hour={hour} onClose={() => setShowSunChart(false)} />
       )}
 
@@ -3003,6 +3032,29 @@ export function Scene3D({
           }}
         >
           Neighbour shade: no aerial height map for this site · only the neighbours you draw shade the design
+        </div>
+      )}
+      {/* The studio view isolates the design, so nothing next door casts into
+          this frame. The shadow it draws is the real sun's on the design's own
+          geometry — say what is missing from the picture, or a reader takes a
+          clean studio shadow for the whole story (DESIGN-SYSTEM §12). */}
+      {meshMode && !heatmap && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 64,
+            bottom: 124,
+            zIndex: 12,
+            fontSize: 9.5,
+            lineHeight: 1.3,
+            color: '#f5c16c',
+            background: 'rgba(10,13,18,0.55)',
+            padding: '2px 7px',
+            borderRadius: 4,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          Studio view: real sun, design only · the neighbours shade it in Map view and in the numbers
         </div>
       )}
 
@@ -3102,8 +3154,9 @@ export function Scene3D({
         </button>
       )}
 
-      {/* ── time bar (solar context; hidden in mesh/studio & heatmap view) ── */}
-      {!meshMode && !heatmap && (
+      {/* ── time bar (solar context; hidden only in heatmap view, which is a
+             whole-year figure and has no single hour to set) ── */}
+      {!heatmap && (
       <div
         style={{
           position: 'absolute',
@@ -4028,10 +4081,18 @@ function SceneContent({
    * drops — so a box sized to the footprint alone cut the shadow off partway
    * across the ground.
    *
-   * The allowance is 1.5 × the design's height, which holds the whole shadow
-   * down to a sun altitude of about 34°. Lower than that it clips again, and
-   * that is a deliberate trade: the 4096 map has to cover whatever this box
-   * spans, so buying the last few degrees costs sharpness everywhere else.
+   * THE ALLOWANCE FOLLOWS THE SUN. It was a flat 1.5 × the design's height,
+   * which holds the shadow down to an altitude of about 34° and cut it off
+   * below that — so the late-afternoon shadow, the one an EPC is actually
+   * asked about, simply was not drawn. It is now `cot(altitude)` × the height:
+   * 1.5 at 34° (exactly what it was), 6 at 9.5°, clamped between the two.
+   *
+   * The old trade — a wider box means coarser texels everywhere — is mostly
+   * paid off by three/ShadowFit, which fits the map per frame to the part of
+   * the box the camera can SEE. A wider box now only costs sharpness in the
+   * zoomed-right-out view, and only while the sun is low. Below about 9.5° it
+   * still clips; a sun that low is worth almost nothing to the design and the
+   * badge says the altitude out loud.
    *
    * It is sized on `shadowFit`, not `bounds`: the CASTERS include the
    * obstructions — the neighbouring block, the tree over the parapet — and a
@@ -4041,7 +4102,10 @@ function SceneContent({
    * coarsens every shadow in the scene, which is the honest cost of drawing
    * the shade the quote already assumes.
    */
-  const shadowHalf = Math.max(20, shadowFit.r * 1.2 + (shadowFit.yMax - shadowFit.yMin) * 1.5);
+  const shadowReach = sunVisible
+    ? Math.min(SHADOW_REACH_MAX, Math.max(SHADOW_REACH_MIN, 1 / Math.tan(sunAltitude)))
+    : SHADOW_REACH_MIN;
+  const shadowHalf = Math.max(20, shadowFit.r * 1.2 + (shadowFit.yMax - shadowFit.yMin) * shadowReach);
   const sunPos = useMemo(
     () => sunDir.clone().multiplyScalar(Math.max(80, shadowFit.r * 3 + shadowFit.yMax)).add(lightAnchor),
     [sunDir, shadowFit, lightAnchor],
@@ -4059,6 +4123,24 @@ function SceneContent({
   );
   const sunLightRef = useRef<THREE.DirectionalLight | null>(null);
   const studioLightRef = useRef<THREE.DirectionalLight | null>(null);
+  /**
+   * Where the studio key light stands when there IS no sun.
+   *
+   * The studio key follows the real sun (see the mesh branch below), so after
+   * dusk it would stand below the floor and the model would go black. At night
+   * it falls back to this three-quarter product-shot position — the one the
+   * studio view used at every hour before the sun drove it. The time bar and
+   * the sun badge both read "night", so nobody mistakes this for a shadow.
+   */
+  const studioNightKeyPos = useMemo(
+    () => new THREE.Vector3(lightAnchor.x + 24, 40, lightAnchor.z + 20),
+    [lightAnchor],
+  );
+  // see STUDIO_GRAZE_MAX: hold the lit floor's level as the sun drops, so the
+  // shadow it throws stays readable at 4 PM as well as at noon
+  const studioKeyIntensity =
+    STUDIO_KEY_INTENSITY *
+    (sunVisible ? Math.min(STUDIO_GRAZE_MAX, 1 / Math.max(Math.sin(sunAltitude), 0.05)) : 1);
 
   // heatmap mode: flat satellite ground + colored roof-surface cells only —
   // no 3D model, no lighting drama (unlit cells read the true ramp colors)
@@ -4207,17 +4289,42 @@ function SceneContent({
 
       {meshMode ? (
         <>
-          {/* studio background + soft product-render lighting (sun-independent) */}
+          {/* studio background + soft product-render fills */}
           <color attach="background" args={['#0c0f15']} />
           <fogExp2 attach="fog" args={['#0c0f15', 0.0022]} />
           <ambientLight intensity={0.28} />
           <hemisphereLight intensity={0.3} groundColor="#141922" color="#eef2f8" />
           <ShadowFit light={studioLightRef} box={shadowBox} halfM={shadowHalf} />
+          {/*
+           * THE STUDIO KEY LIGHT IS THE SUN.
+           *
+           * It used to stand at a fixed three-quarter position, so the studio
+           * view drew a handsome shadow that meant nothing: dragging the time
+           * bar moved the shadows in map view and left the studio's exactly
+           * where they were, at an hour that does not exist. A shadow study
+           * that ignores the clock is worse than none — it looks like an
+           * answer.
+           *
+           * Now it stands on `sunPos`, the same vector the map view's sun
+           * light uses, so the DIRECTION and LENGTH of every shadow here is
+           * the real sun's at the chosen date and hour.
+           *
+           * What stays studio: the intensity and the white colour. A shadow
+           * study is a drawing, and a grazing evening sun that is honestly
+           * dim leaves the facades too dark to read. So the geometry is
+           * measured and the exposure is not — the same bargain an architect's
+           * shadow plate makes.
+           *
+           * What is NOT here: the neighbours. The studio view isolates the
+           * design by definition, so nothing next door casts into this frame
+           * (the note bottom-right says so, and the engine's numbers still
+           * include them). Map view is where neighbour shade is drawn.
+           */}
           <directionalLight
             ref={studioLightRef}
-            position={[bounds.cx + originShift[0] + 24, 40, bounds.cz + originShift[2] + 20]}
+            position={sunVisible ? sunPos : studioNightKeyPos}
             target={lightTarget}
-            intensity={1.15}
+            intensity={studioKeyIntensity}
             color="#ffffff"
             castShadow
             shadow-mapSize-width={4096}
@@ -4227,7 +4334,9 @@ function SceneContent({
             shadow-camera-top={shadowHalf}
             shadow-camera-bottom={-shadowHalf}
             shadow-camera-near={1}
-            shadow-camera-far={shadowHalf * 6}
+            // 8, as in map view: the sun stands `r × 3 + height` away, which
+            // for a wide site is further out than 6 × the box half-width.
+            shadow-camera-far={shadowHalf * 8}
             shadow-bias={-0.00015}
             shadow-normalBias={NORMAL_BIAS}
             shadow-radius={shadowRadiusTexels(shadowHalf)}
@@ -4238,9 +4347,8 @@ function SceneContent({
               own outline: the far edge of a wall and the floor behind it sit at
               nearly the same value, so the silhouette dissolves exactly where
               the eye reads height. A cool back light puts a bright lip on every
-              far edge and hands the shape back. It casts nothing — this is
-              drawing, not daylight, and the sun the numbers use lives in the
-              MAP view where it belongs. */}
+              far edge and hands the shape back. It casts nothing — only the key
+              light above does, and that one is the real sun. */}
           <directionalLight
             position={[bounds.cx + originShift[0] - 12, 13, bounds.cz + originShift[2] - 36]}
             intensity={0.38}
@@ -5208,7 +5316,10 @@ function SceneContent({
         </>
       )}
 
-      {!meshMode && showSunPath && (
+      {/* the studio draws these too: the menu's Sun button existed in mesh
+          view and did nothing, and the arcs are how you read WHY a shadow
+          falls where it does */}
+      {showSunPath && (
         // centred on the DESIGN, not the scene origin: a building 25 m from
         // the origin had its sun arc drawn 25 m beside it — and at the design's
         // TOP, so a 75 m tower does not swallow its own sun path
@@ -5243,7 +5354,7 @@ function SceneContent({
           148, which reads as the sun sitting beside the building and below the
           horizon while the badge says Alt 54°. Whoever lifted the arcs for
           tall buildings did not lift the sun with them. */}
-      {!meshMode && sunVisible && (
+      {sunVisible && (
         <mesh position={sunDir.clone().multiplyScalar(SUN_DOME_R).add(sunDomeCentre)}>
           <sphereGeometry args={[2.1, 20, 20]} />
           <meshBasicMaterial color="#fff0c0" />

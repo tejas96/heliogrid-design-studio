@@ -10,7 +10,10 @@ import { fitShadowCamera, MIN_EXTENT_M } from '../ShadowFit';
 
 /** a 188 m shed: the box the map used to be stretched over, plus the sun */
 function rig() {
-  const half = 113; // max(20, 94 × 1.2 + 8 × 1.5) — Scene3D's rule for r = 94 m
+  // max(20, 94 × 1.2 + 8 × 1.5) — Scene3D's rule for r = 94 m with the sun at
+  // or above 34°. Below that Scene3D widens the box (SHADOW_REACH_MAX); the
+  // fit is given `half` outright, so this rig is unaffected either way.
+  const half = 113;
   const box = new THREE.Box3(new THREE.Vector3(-half, -1, -half), new THREE.Vector3(half, 9, half));
   const light = new THREE.DirectionalLight();
   light.shadow.mapSize.set(4096, 4096);
