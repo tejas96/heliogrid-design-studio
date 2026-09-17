@@ -18,15 +18,17 @@ const OBSTRUCTION_STAGE = 3;
 const ROOF_STAGE = 2;
 
 /**
- * Does the scene-tools radial menu belong on screen at `stage`?
+ * Do the hand-off tools and the Inspect group belong on screen at `stage`?
  *
- * Owner directive, 2026-09-18: not on Roof Setup. That step opens the 3D only
- * to look at the roof it just traced, and every tool in the menu (heatmap,
- * share, .glb export, measures, surroundings, sun path) is about a design the
- * step does not own yet. Keyboard still reaches the views (1–6), fly (F),
- * isolate (I), measure (M) and the shortcut sheet (?).
+ * Owner directive, 2026-09-18: not on Roof Setup. Those are the customer share
+ * link, the .glb export and the whole Inspect group (select, fly, isolate,
+ * walk, full screen) — all of them about a finished design the step does not
+ * own yet. The rest of the menu stays: Scene, View and Measure.
+ *
+ * Keyboard is unchanged everywhere, so fly (F), isolate (I) and walk (W) still
+ * work on Roof Setup even with no buttons for them.
  */
-export function stageShowsSceneTools(stage?: number): boolean {
+export function stageShowsHandoffTools(stage?: number): boolean {
   return stage !== ROOF_STAGE;
 }
 
