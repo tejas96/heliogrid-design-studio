@@ -14,7 +14,7 @@ import {
 } from '@react-three/drei';
 import * as THREE from 'three';
 import { designBounds, shadowBounds, type SceneBounds } from './scene-bounds';
-import { projectForStage, stageShowsDesign } from '../lib/scene-stage';
+import { projectForStage, stageShowsDesign, stageShowsSceneTools } from '../lib/scene-stage';
 import { RadialMenu, type RadialGroup, type RadialItem } from '../components/RadialMenu';
 import { ACCESS_GRADIENT_CSS } from '../lib/shade-ramp';
 import { PanelYieldCard, usePanelYield } from '../components/PanelYieldCard';
@@ -1054,6 +1054,8 @@ export function Scene3D({
   // all read this, so an early step cannot show a later step's work.
   const project = useMemo(() => projectForStage(fullProject, stage), [fullProject, stage]);
   const designStage = stageShowsDesign(stage);
+  // Roof Setup gets no tool menu at all — see lib/scene-stage.
+  const sceneTools = stageShowsSceneTools(stage);
   const loc = project.location!;
   const patchProject = useProjectPatch();
   const ops = useOps();
@@ -2058,6 +2060,7 @@ export function Scene3D({
   // or a whole rail; a group with no items left is dropped by the menu, so the
   // heatmap still collapses the controls down to the heatmap toggle itself.
   const haloGroups: RadialGroup[] = useMemo(() => {
+    if (!sceneTools) return [];
     const scene: RadialItem[] = [
       {
         id: 'heatmap',
@@ -2340,6 +2343,7 @@ export function Scene3D({
     ];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    sceneTools,
     heatmap,
     designStage,
     solarAccessView,
@@ -2378,7 +2382,13 @@ export function Scene3D({
       // unreachable by keyboard — you could open it and then not move it.
       tabIndex={0}
       role="application"
-      aria-label="3D scene. Arrow keys orbit, Shift for finer steps, plus and minus zoom, 1 top view, 2 isometric, 3 front, Shift-drag box-selects modules — or turn on Select mode in the menu and drag, for a touch screen. Escape closes."
+      aria-label={
+        // the Select-mode sentence names a menu item, so it may only be said
+        // where the menu exists (Roof Setup has none — lib/scene-stage)
+        sceneTools
+          ? '3D scene. Arrow keys orbit, Shift for finer steps, plus and minus zoom, 1 top view, 2 isometric, 3 front, Shift-drag box-selects modules — or turn on Select mode in the menu and drag, for a touch screen. Escape closes.'
+          : '3D scene. Arrow keys orbit, Shift for finer steps, plus and minus zoom, 1 top view, 2 isometric, 3 front. Escape closes.'
+      }
       onKeyDown={onSceneKeyDown}
       onPointerMove={wake}
       onPointerDown={wake}
@@ -2716,7 +2726,7 @@ export function Scene3D({
       )}
 
       {/* ── every scene tool, in one radial menu (see components/RadialMenu) ── */}
-      <RadialMenu groups={haloGroups} ariaLabel="Scene tools" style={{ left: 64, top: '50%' }} />
+      {sceneTools && <RadialMenu groups={haloGroups} ariaLabel="Scene tools" style={{ left: 64, top: '50%' }} />}
 
       {/* ── box select rectangle (Shift-drag) ── */}
       {marquee &&

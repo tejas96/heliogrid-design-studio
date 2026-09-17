@@ -14,6 +14,21 @@ import type { Project } from '../types';
 const DESIGN_STAGE = 5;
 /** The first wizard step at which obstructions exist. */
 const OBSTRUCTION_STAGE = 3;
+/** Roof Setup. Its 3D is a look at the traced roof, not the studio. */
+const ROOF_STAGE = 2;
+
+/**
+ * Does the scene-tools radial menu belong on screen at `stage`?
+ *
+ * Owner directive, 2026-09-18: not on Roof Setup. That step opens the 3D only
+ * to look at the roof it just traced, and every tool in the menu (heatmap,
+ * share, .glb export, measures, surroundings, sun path) is about a design the
+ * step does not own yet. Keyboard still reaches the views (1–6), fly (F),
+ * isolate (I), measure (M) and the shortcut sheet (?).
+ */
+export function stageShowsSceneTools(stage?: number): boolean {
+  return stage !== ROOF_STAGE;
+}
 
 /** Does the design (modules, racking, wiring, BOS) belong on screen at `stage`? */
 export function stageShowsDesign(stage?: number): boolean {
