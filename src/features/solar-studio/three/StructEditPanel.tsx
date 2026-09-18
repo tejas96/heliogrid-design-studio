@@ -15,7 +15,9 @@
 //   · VIEW choices (module visibility, table isolation) call onViewChange and
 //     must NEVER touch the project — ghosting a module to look at a rafter is
 //     not a design change, and if it were persisted it would stale captures.
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import { useThree } from '@react-three/fiber';
+import { Vector3 } from 'three';
 import { LegPlanEditor } from './LegPlanEditor';
 import { Html } from '@react-three/drei';
 import type {
@@ -37,6 +39,8 @@ import {
 import type { StructChoice } from '../lib/structure-edit';
 import { StructurePreview } from '../components/StructurePreview';
 import { sectionSvgPath } from './profile-geometry';
+import { MmsConfiguration } from '../components/mms/MmsConfiguration';
+import { MmsComponentDetails } from '../components/mms/MmsComponentDetails';
 
 const FOUNDATION_LABEL: Record<FoundationKind, string> = {
   concrete: 'PCC pedestal',
@@ -106,6 +110,8 @@ export function StructEditPanel({
   project,
   segId,
   panelId,
+  componentId,
+  onComponentSelect,
   anchor,
   onCommit,
   onClose,
@@ -118,6 +124,8 @@ export function StructEditPanel({
   project: Project;
   segId: string;
   panelId?: string;
+  componentId?: string;
+  onComponentSelect?: (id: string) => void;
   anchor: [number, number, number];
   onCommit: (c: StructChoice) => void;
   onClose: () => void;
@@ -131,6 +139,8 @@ export function StructEditPanel({
   fmtLen?: (m: number, dp?: number) => string;
 }) {
   const [showLegs, setShowLegs] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const { size } = useThree();
   const seg = project.segments.find((sg) => sg.id === segId);
   const roof = seg ? project.roofs.find((r) => r.id === seg.roofId) : undefined;
   const spec = project.components.panel;
@@ -194,15 +204,23 @@ export function StructEditPanel({
     </div>
   );
   return (
-    <Html position={anchor} center zIndexRange={[40, 10]}>
+    <Html position={anchor} center zIndexRange={[40, 10]} calculatePosition={(object, camera, viewport) => {
+      const p = new Vector3().setFromMatrixPosition(object.matrixWorld).project(camera);
+      const halfW = Math.min(cardRef.current?.offsetWidth ?? 340, viewport.width - 32) / 2;
+      const halfH = Math.min(cardRef.current?.offsetHeight ?? 500, viewport.height - 40) / 2;
+      return [Math.max(halfW + 16, Math.min(viewport.width - halfW - 16, (p.x + 1) * viewport.width / 2)), Math.max(halfH + 20, Math.min(viewport.height - halfH - 20, (1 - p.y) * viewport.height / 2))];
+    }}>
       <div
+        ref={cardRef}
         role="dialog"
+        data-testid="mms-structure-inspector"
         data-struct-edit-card=""
         aria-label={`Structure options for ${seg.label}`}
         style={{
           // sit BESIDE the table, never on top of it — the model IS the preview
-          transform: 'translate(64%, -10%)',
-          width: 252,
+          width: Math.max(200, Math.min(340, size.width - 32)),
+          maxHeight: Math.min(650, size.height - 40),
+          overflowY: 'auto',
           background: 'rgba(13,16,21,.95)',
           border: '1px solid rgba(255,255,255,.16)',
           borderRadius: 12,
@@ -220,10 +238,13 @@ export function StructEditPanel({
               ? 'Flush mount'
               : `${seg.racking.tiltDeg}° · ${seg.racking.profile.label}`}
           </span>
-          <button style={{ ...structBtn, padding: '2px 7px' }} onClick={onClose} aria-label="Close">
+          <button data-testid="mms-inspector-close" style={{ ...structBtn, padding: '2px 7px' }} onClick={onClose} aria-label="Close">
             ✕
           </button>
         </div>
+        <MmsComponentDetails project={project} segmentId={segId} componentId={componentId} />
+        {onComponentSelect && <label className="mms-field">Inspect component<select data-testid="mms-component-picker" aria-label="Inspect MMS component" value={componentId ?? ''} onChange={e => onComponentSelect(e.target.value)}><option value="">Select member or connection</option>{projectStructures(project).filter(s => s.segmentId === segId).flatMap(s => [...s.members.map(m => <option key={m.id} value={m.id}>{m.kind.replaceAll('_', ' ')} · {m.id.split('/').pop()}</option>), ...s.nodes.map(n => <option key={n.id} value={n.id}>{n.kind.replaceAll('_', ' ')} · {n.id.split('/').pop()}</option>)])}</select></label>}
+        {onPatch && <MmsConfiguration project={project} segmentId={segId} prefix="scene-mms" onPatch={onPatch} />}
         {/* the same readout the module card in the scene shows, so the two can
             never disagree about what a module makes (components/PanelYieldCard) */}
         {panelInfo && <PanelYieldCard info={panelInfo} onFocusBlocker={onFocusBlocker} compact />}

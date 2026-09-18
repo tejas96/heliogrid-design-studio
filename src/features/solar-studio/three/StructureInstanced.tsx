@@ -39,6 +39,7 @@ import type { Member, SegmentStructure } from '../lib/structure';
 import { profileByKey } from '../data/profiles';
 import { cachedProfileGeometry } from './profile-geometry';
 import { getPanelMaterials } from './textures';
+import { mmsMaterial } from './mms-materials';
 
 /** Fallback half-size when a member's profile carries no `dims` (legacy). */
 function fallbackSectionM(kind: Member['kind']): number {
@@ -48,8 +49,10 @@ function fallbackSectionM(kind: Member['kind']): number {
 const UP = new THREE.Vector3(0, 1, 0);
 const PLAIN = new THREE.Color('#ffffff');
 const LIT = new THREE.Color('#ffb454');
+const CONFLICT = new THREE.Color('#ff3b28');
 
 interface Bucket {
+  material?: THREE.Material;
   geometry: THREE.BufferGeometry;
   /** true when the geometry is a real section (unit length) vs a unit box */
   sectioned: boolean;
@@ -61,11 +64,13 @@ interface Bucket {
 export function StructureInstanced({
   structures,
   highlightIds,
+  conflictIds,
   onMemberClick,
 }: {
   structures: SegmentStructure[];
   /** member ids to tint — drives BOM↔3D focus (Phase 22n) */
   highlightIds?: ReadonlySet<string>;
+  conflictIds?: ReadonlySet<string>;
   /** §H on-object editing: reports the clicked member AND its segment */
   onMemberClick?: (segmentId: string, memberId: string) => void;
 }) {
@@ -82,15 +87,16 @@ export function StructureInstanced({
     const map = new Map<string, Bucket>();
     for (const s of structures) {
       for (const mem of s.members) {
-        const profile = profileByKey(mem.profileKey);
+        const profile = mem.profile ?? profileByKey(mem.profileKey);
         // legacy profiles carry no dims — fall back to the old box so an old
         // project still renders rather than disappearing
-        const key = profile?.dims ? mem.profileKey : `box:${mem.kind}`;
+        const key = `${s.mms?.material ?? 'legacy'}:${profile?.dims ? mem.profileKey : `box:${mem.kind}`}`;
         let b = map.get(key);
         if (!b) {
           b = {
+            material: s.mms ? mmsMaterial(s.mms.material) : undefined,
             geometry: profile?.dims
-              ? cachedProfileGeometry(mem.profileKey, profile.dims)
+              ? cachedProfileGeometry(`${mem.profileKey}:${JSON.stringify(profile.dims)}`, profile.dims)
               : fallbackBox,
             sectioned: Boolean(profile?.dims),
             members: [],
@@ -113,7 +119,9 @@ export function StructureInstanced({
     const dir = new THREE.Vector3();
 
     return buckets.map((b) => {
-      const m = new THREE.InstancedMesh(b.geometry, material, b.members.length);
+      const m = new THREE.InstancedMesh(b.geometry, b.material ?? material, b.members.length);
+      m.name = `mms-members-${b.members[0]?.profileKey}`;
+      m.userData = { testId: m.name, componentIds: b.members.map(mem => mem.id) };
       b.members.forEach((mem, i) => {
         // EN(x east, y north, z up) → three.js (x, z, −y). Members render at
         // their true axes; the MODULES are lifted by MODULE_STANDOFF_M instead
@@ -134,16 +142,16 @@ export function StructureInstanced({
         scl.set(s, len, s);
         mat.compose(pos, q, scl);
         m.setMatrixAt(i, mat);
-        m.setColorAt(i, highlightIds?.has(mem.id) ? LIT : PLAIN);
+        m.setColorAt(i, conflictIds?.has(mem.id) ? CONFLICT : highlightIds?.has(mem.id) ? LIT : PLAIN);
       });
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
       m.castShadow = true;
       m.receiveShadow = true;
-      m.frustumCulled = false; // instances spread beyond the geometry bounds
+      m.computeBoundingBox(); m.computeBoundingSphere(); m.frustumCulled = true;
       return m;
     });
-  }, [buckets, material, highlightIds]);
+  }, [buckets, material, highlightIds, conflictIds]);
 
   // InstancedMesh allocates per-instance GPU buffers — always dispose. The
   // GEOMETRIES are cached and shared (see profile-geometry) so they are NOT

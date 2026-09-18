@@ -35,6 +35,7 @@ export type LineKey =
   // ── Mechanical BOS
   /** per structural PROFILE — suffixed with the profile key */
   | 'mech.steel'
+  | 'mech.mms_component'
   | 'mech.base_plate'
   | 'mech.ballast'
   | 'mech.pile'

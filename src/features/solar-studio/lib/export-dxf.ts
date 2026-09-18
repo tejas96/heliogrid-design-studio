@@ -13,6 +13,7 @@ import { panelCornersOnRoof } from './layout';
 import { rectCorners, polygonCentroid } from './geo';
 import { deriveStructures } from './derive/structures';
 import { ruleFor } from './foundation';
+import { foundationFootprints } from './mms/parts';
 
 export const DXF_LAYERS = {
   roof: 'PV-ROOF',
@@ -162,13 +163,15 @@ function drawStructure(d: DxfBuilder, project: Project): void {
     }
 
     const anchors = s.nodes.filter((n) => n.kind === 'roof_anchor');
-    const rule = ruleFor(s.foundation, s.foundationShape);
+    const rule = ruleFor(s.foundation, s.foundationShape, s.mms);
     for (const n of anchors) {
       const c = { x: n.position.x, y: n.position.y };
 
       // FOOTING at true size — this is the thing someone marks out and casts,
       // so drawing it nominally would be worse than not drawing it at all.
-      if (rule.shape === 'circular' && rule.d) {
+      if (s.mms) {
+        for (const p of foundationFootprints(s, n).filter(p => ['ballast', 'plate', 'pedestal', 'bolt'].includes(p.part.bucket))) d.polyline(p.polygon, DXF_LAYERS.structFootings, true);
+      } else if (rule.shape === 'circular' && rule.d) {
         d.circle(c, rule.d / 2000, DXF_LAYERS.structFootings);
       } else if (rule.l) {
         d.polyline(

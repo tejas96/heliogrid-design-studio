@@ -25,6 +25,7 @@
 // so "Walk-under 2.2 m" keeps meaning 2.2 m of usable clearance.
 import type { FoundationKind, FoundationShape } from '../types';
 import { resolveRules, type FoundationGeometryRule } from '../data/rules/india';
+import type { MmsConfig } from './mms/types';
 
 const MM = 0.001;
 
@@ -60,10 +61,12 @@ export interface FoundationAssembly {
  * as the diameter (and vice versa), which is what an installer means by
  * "same size, round shuttering".
  */
-export function ruleFor(kind: FoundationKind, shape?: FoundationShape): FoundationGeometryRule {
+export function ruleFor(kind: FoundationKind, shape?: FoundationShape, mms?: MmsConfig): FoundationGeometryRule {
   const f = resolveRules().foundations;
   const base =
     kind === 'concrete' ? f.pedestal : kind === 'ballast' ? f.ballast : kind === 'pile' ? f.pile : f.anchor;
+  if (mms && kind === 'ballast') return { ...base, shape: 'square', l: mms.ballast.lengthM * 1000, w: mms.ballast.widthM * 1000, heightMm: mms.ballast.heightM * 1000, plateMm: mms.anchor.plateSizeMm, plateThkMm: mms.anchor.plateThicknessMm };
+  if (mms && kind === 'anchor') return { ...base, plateMm: mms.anchor.plateSizeMm, plateThkMm: mms.anchor.plateThicknessMm, embedMm: mms.anchor.embedmentMm };
   if (kind !== 'concrete' || !shape || shape === base.shape) return base;
   return shape === 'circular'
     ? { ...base, shape, d: base.d ?? base.l ?? 0, l: undefined, w: undefined }
@@ -88,7 +91,8 @@ export function foundationVolumeM3(r: FoundationGeometryRule): number {
 }
 
 /** Mass one foundation adds to the roof, kg. ASSUMED — engineer to confirm. */
-export function foundationDeadLoadKg(kind: FoundationKind, shape?: FoundationShape): number {
+export function foundationDeadLoadKg(kind: FoundationKind, shape?: FoundationShape, mms?: MmsConfig): number {
+  if (kind === 'ballast' && mms) return mms.ballast.massKg * mms.ballast.blocksPerSupport;
   // A pile is driven into the ground, not stood on a slab: no roof load.
   if (kind === 'pile' || kind === 'anchor') return 0;
   const { concreteDensityKgM3 } = resolveRules().foundations;
@@ -116,8 +120,9 @@ const GROUT_MM = 12; // levelling grout bed under the plate
 export function foundationAssembly(
   kind: FoundationKind,
   shape?: FoundationShape,
+  mms?: MmsConfig,
 ): FoundationAssembly {
-  const r = ruleFor(kind, shape);
+  const r = ruleFor(kind, shape, mms);
   const parts: FoundationPart[] = [];
   const h = r.heightMm * MM;
   const plate = r.plateMm * MM;
@@ -157,6 +162,14 @@ export function foundationAssembly(
     });
   }
 
+  // Additional ballast blocks distribute alongside the support, on the deck.
+  if (kind === 'ballast' && mms) {
+    const block = parts[0];
+    for (let i = 1; i < Math.min(20, mms.ballast.blocksPerSupport); i++) {
+      const sign = i % 2 ? 1 : -1;
+      parts.push({ ...block, offset: { ...block.offset, x: sign * Math.ceil(i / 2) * (block.size.x + .02) } });
+    }
+  }
   // every kind gets a base plate
   const plateY = kind === 'concrete' ? h + GROUT_MM * MM : h;
   parts.push({
@@ -168,16 +181,18 @@ export function foundationAssembly(
 
   // anchor bolts — cast-in for a pedestal, drilled for a chemical anchor
   if (kind === 'concrete' || kind === 'anchor') {
-    const g = plate * 0.34;
-    for (const dx of [-g, g]) {
-      for (const dz of [-g, g]) {
+    const g = mms ? mms.anchor.spacingMm * MM / 2 : plate * 0.34;
+    const count = mms ? Math.max(0, Math.min(16, Math.round(mms.anchor.count))) : 4;
+    for (let i = 0; i < count; i++) {
+        const dx = i % 2 ? g : -g;
+        const rows = Math.ceil(count / 2);
+        const dz = rows === 1 ? 0 : -g + (Math.floor(i / 2) / (rows - 1)) * 2 * g;
         parts.push({
           bucket: 'bolt',
           geometry: 'cylinder',
-          size: { x: BOLT_D, y: BOLT_PROUD, z: BOLT_D },
+          size: { x: mms ? mms.anchor.diameterMm * MM : BOLT_D, y: BOLT_PROUD, z: mms ? mms.anchor.diameterMm * MM : BOLT_D },
           offset: { x: dx, y: plateY + plateT + BOLT_PROUD / 2 - plateT / 2, z: dz },
         });
-      }
     }
   }
 
@@ -186,7 +201,7 @@ export function foundationAssembly(
     parts,
     heightM: plateY + plateT,
     concreteM3: kind === 'concrete' ? foundationVolumeM3(r) : 0,
-    deadLoadKg: foundationDeadLoadKg(kind, shape),
+    deadLoadKg: foundationDeadLoadKg(kind, shape, mms),
   };
 }
 

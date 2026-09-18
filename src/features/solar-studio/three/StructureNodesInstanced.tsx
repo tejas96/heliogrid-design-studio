@@ -23,12 +23,14 @@ import {
 } from '../lib/foundation';
 import { nodeHardware } from '../lib/hardware';
 import { getPanelMaterials } from './textures';
+import { getRoofSurface } from './roof-textures';
 
 interface Placement {
   part: FoundationPart;
   /** node position in EN metres */
   at: { x: number; y: number; z: number };
   nodeId: string;
+  segmentId: string;
   /** rotation about three's Y that lays this part along its own table's rails */
   yaw: number;
 }
@@ -41,9 +43,13 @@ const LIT = new THREE.Color('#ffb454');
 export function StructureNodesInstanced({
   structures,
   highlightIds,
+  conflictIds,
+  onNodeClick,
 }: {
   structures: SegmentStructure[];
   highlightIds?: ReadonlySet<string>;
+  conflictIds?: ReadonlySet<string>;
+  onNodeClick?: (segmentId: string, nodeId: string) => void;
 }) {
   const { box, cylinder, concrete, steel } = useMemo(
     () => ({
@@ -55,6 +61,7 @@ export function StructureNodesInstanced({
         color: 0x9a9791,
         metalness: 0.02,
         roughness: 0.95,
+        map: getRoofSurface('rcc_flat')?.map,
       }),
       steel: getPanelMaterials().leg.clone(),
     }),
@@ -87,12 +94,13 @@ export function StructureNodesInstanced({
             ? // kind comes from the node's own hardware; SHAPE from the
               // structure's resolved racking — one answer each, neither
               // re-derived here
-              foundationAssembly(foundationKindOfSpec(node.fastenerSpec), s.foundationShape).parts
-            : nodeHardware(node.kind);
+              foundationAssembly(foundationKindOfSpec(node.fastenerSpec), s.foundationShape, s.mms).parts
+            : nodeHardware(node.kind, s.mms, node.fastenerSpec.bolts);
         for (const part of parts) {
-          const list = map.get(part.bucket) ?? [];
-          list.push({ part, at: node.position, nodeId: node.id, yaw });
-          map.set(part.bucket, list);
+          const key = `${part.bucket}:${part.geometry}`;
+          const list = map.get(key) ?? [];
+          list.push({ part, at: node.position, nodeId: node.id, segmentId: s.segmentId, yaw });
+          map.set(key, list);
         }
       }
     }
@@ -110,8 +118,10 @@ export function StructureNodesInstanced({
       const first = places[0].part;
       const geometry = first.geometry === 'cylinder' ? cylinder : box;
       const material =
-        bucket === 'pedestal' || bucket === 'ballast' || bucket === 'grout' ? concrete : steel;
+        bucket.startsWith('pedestal:') || bucket.startsWith('ballast:') || bucket.startsWith('grout:') ? concrete : steel;
       const m = new THREE.InstancedMesh(geometry, material, places.length);
+      m.name = `mms-hardware-${bucket}`;
+      m.userData = { testId: m.name, componentIds: places.map(p => p.nodeId) };
       places.forEach((p, i) => {
         // Turn the part to face along its own table's rails. This used to be a
         // never-assigned identity quaternion, so every clamp, plate and bolt
@@ -129,16 +139,16 @@ export function StructureNodesInstanced({
         scl.set(p.part.size.x, p.part.size.y, p.part.size.z);
         mat.compose(pos, q, scl);
         m.setMatrixAt(i, mat);
-        m.setColorAt(i, highlightIds?.has(p.nodeId) ? LIT : PLAIN);
+        m.setColorAt(i, conflictIds?.has(p.nodeId) ? new THREE.Color('#ff3b28') : highlightIds?.has(p.nodeId) ? LIT : PLAIN);
       });
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
       m.castShadow = true;
       m.receiveShadow = true;
-      m.frustumCulled = false;
+      m.computeBoundingBox(); m.computeBoundingSphere(); m.frustumCulled = true;
       return m;
     });
-  }, [buckets, box, cylinder, concrete, steel, highlightIds]);
+  }, [buckets, box, cylinder, concrete, steel, highlightIds, conflictIds]);
 
   useEffect(
     () => () => {
@@ -151,7 +161,7 @@ export function StructureNodesInstanced({
   return (
     <>
       {meshes.map((m, i) => (
-        <primitive key={i} object={m} />
+        <primitive key={i} object={m} onClick={onNodeClick ? (e: { instanceId?: number; delta: number; stopPropagation: () => void }) => { if (e.delta > 4 || e.instanceId == null) return; const p = buckets[i][1][e.instanceId]; if (p) { e.stopPropagation(); onNodeClick(p.segmentId, p.nodeId); } } : undefined} />
       ))}
     </>
   );

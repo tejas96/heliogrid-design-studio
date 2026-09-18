@@ -511,6 +511,7 @@ import {
   type StructureViewState,
 } from '../lib/structure-view';
 import { StructEditPanel } from './StructEditPanel';
+import { validateMms } from '../lib/mms/validate';
 import { panelPose } from '../lib/panel-pose';
 import { ObstructionMesh, useWarmObstructionAssets } from './ObstructionMesh';
 
@@ -1237,8 +1238,9 @@ export function Scene3D({
     /** set when the click landed on a MODULE — the card then also explains
      *  that panel's sun/energy (per-panel scope, labeled separately) */
     panelId?: string;
+    componentId?: string;
   } | null>(null);
-  const openStructEdit = (segId: string, panelId?: string) => {
+  const openStructEdit = (segId: string, panelId?: string, componentId?: string) => {
     if (!structInteractive) return;
     const seg = project.segments.find((sg) => sg.id === segId);
     const roof = seg ? project.roofs.find((r) => r.id === seg.roofId) : undefined;
@@ -1247,7 +1249,7 @@ export function Scene3D({
     const cx = mine.reduce((a, pp) => a + pp.center.x, 0) / mine.length;
     const cy = mine.reduce((a, pp) => a + pp.center.y, 0) / mine.length;
     setPick(null); // one card at a time
-    setStructEdit({ segId, anchor: [cx, roof.heightM + 2.2, -cy], panelId });
+    setStructEdit({ segId, anchor: [cx, roof.heightM + 2.2, -cy], panelId, componentId });
   };
   const pickEntity = (p: ScenePick | null) => {
     if (p) setStructEdit(null);
@@ -3558,8 +3560,8 @@ function SceneContent({
   heatResult: HeatmapResult | null;
   heatMonth: number;
   /** §H on-object structure editing (null = read-only surface) */
-  structEdit: { segId: string; anchor: [number, number, number]; panelId?: string } | null;
-  onStructOpen: (segId: string, panelId?: string) => void;
+  structEdit: { segId: string; anchor: [number, number, number]; panelId?: string; componentId?: string } | null;
+  onStructOpen: (segId: string, panelId?: string, componentId?: string) => void;
   onStructCommit: (c: StructChoice) => void;
   /** Phase 22m — leg-plan patches, applied as ONE undoable step like the rest */
   onStructPatch: (patch: Partial<Project>) => void;
@@ -3625,6 +3627,8 @@ function SceneContent({
   // so re-deriving every structure on an unrelated patch (a price edit, a
   // note) is no longer a recompute at all — no useMemo needed here.
   const allStructures = deriveStructures(project);
+  const mmsConflictIds = useMemo(() => new Set(validateMms(project, allStructures).filter(f => f.status === 'error').flatMap(f => f.componentIds)), [project, allStructures]);
+  const inspectedIds = useMemo(() => new Set(structEdit?.componentId ? [structEdit.componentId] : []), [structEdit?.componentId]);
 
   // ── Phase 22l: structure-inspection view state ────────────────────────────
   // NEVER persisted and never fingerprinted — ghosting a module to look at a
@@ -4811,11 +4815,13 @@ function SceneContent({
         <>
           <StructureInstanced
             structures={structures}
-            onMemberClick={(segId) => onStructOpen(segId)}
+            conflictIds={captureMode ? undefined : mmsConflictIds}
+            highlightIds={inspectedIds}
+            onMemberClick={(segId, memberId) => onStructOpen(segId, undefined, memberId)}
           />
           {/* what every leg actually stands on — pedestal / ballast / pile.
               Nothing drew these before, so a table appeared to float. */}
-          <StructureNodesInstanced structures={structures} />
+          <StructureNodesInstanced structures={structures} conflictIds={captureMode ? undefined : mmsConflictIds} highlightIds={inspectedIds} onNodeClick={(segId, nodeId) => onStructOpen(segId, undefined, nodeId)} />
         </>
       )}
       {structEdit && spec && (
@@ -4823,6 +4829,8 @@ function SceneContent({
           project={project}
           segId={structEdit.segId}
           panelId={structEdit.panelId}
+          componentId={structEdit.componentId}
+          onComponentSelect={id => onStructOpen(structEdit.segId, undefined, id)}
           anchor={structEdit.anchor}
           onCommit={onStructCommit}
           onPatch={onStructPatch}

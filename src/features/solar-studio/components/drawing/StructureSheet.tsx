@@ -7,7 +7,7 @@
 // the BOM are one model (§A0). Nothing here invents a dimension.
 import { Sheet, TitleBlock, Notes, ScaleBar, GridRefs, SHEET_SIZES } from './index';
 import {
-  elevationProject,
+  elevationProject as worldElevationProject,
   fitToBox,
   isoProject,
   projectMembers,
@@ -16,6 +16,7 @@ import {
 import { projectStructures, STRUCTURE_DISCLAIMER } from '../../lib/structure';
 import { foundationAssembly, ruleFor } from '../../lib/foundation';
 import type { Project } from '../../types';
+import { MmsDetailSheet } from './MmsDetailSheet';
 
 /** Line weight by member class — a leg reads heavier than a purlin, as drawn. */
 const WEIGHT: Record<string, number> = {
@@ -68,8 +69,13 @@ export function StructureSheet({ project }: { project: Project }) {
   // heading that says "TYPICAL SECTION", which is not what that heading means.
   // A section is one leg pair and the rafter they carry.
   const rafter0 = first.members.find((m) => m.kind === 'rafter');
+  const reference = rafter0 ?? first.members.find(m => m.kind === 'rail');
+  const dx = reference ? reference.b.x - reference.a.x : 0;
+  const dy = reference ? reference.b.y - reference.a.y : 1;
+  const span = Math.hypot(dx, dy) || 1;
+  const elevationProject = (p: { x: number; y: number; z: number }) => first.mms ? { x: (p.x * dx + p.y * dy) / span, y: p.z } : worldElevationProject(p);
   const near = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) =>
-    Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 0.01;
+    Math.hypot(a.x - b.x, a.y - b.y, first.mms ? 0 : a.z - b.z) < 0.01;
   const frame = rafter0
     ? first.members.filter(
         (m) =>
@@ -79,9 +85,10 @@ export function StructureSheet({ project }: { project: Project }) {
       )
     : first.members.slice(0, 3);
   const elSegs = projectMembers(frame, elevationProject);
-  const rule = ruleFor(first.foundation, first.foundationShape);
-  const asm = foundationAssembly(first.foundation, first.foundationShape);
-  const deckZ = Math.min(...first.nodes.filter((n) => n.kind === 'roof_anchor').map((n) => n.position.z));
+  const rule = ruleFor(first.foundation, first.foundationShape, first.mms);
+  const asm = foundationAssembly(first.foundation, first.foundationShape, first.mms);
+  const deckNodes = first.nodes.filter((n) => n.kind === 'roof_anchor' || n.kind === 'sheet_standoff');
+  const deckZ = deckNodes.length ? Math.min(...deckNodes.map(n => n.position.z)) : Math.min(...first.members.map(m => m.a.z));
   // include the foundation body in the fit, or it prints clipped
   const elPts = [
     ...elSegs.flatMap((s) => [s.a, s.b]),
@@ -102,7 +109,7 @@ export function StructureSheet({ project }: { project: Project }) {
   ];
 
   return (
-    <Sheet size="a3">
+    <><Sheet size="a3">
       <GridRefs size="a3" />
       <text x={w / 2} y={40} textAnchor="middle" fontSize={15} fontWeight={800} fontFamily="monospace">
         MOUNTING STRUCTURE · ISOMETRIC & TYPICAL SECTION
@@ -181,10 +188,10 @@ export function StructureSheet({ project }: { project: Project }) {
             .filter((p) => p.bucket === 'pedestal' || p.bucket === 'ballast' || p.bucket === 'pile')
             .map((p, i) => {
               const cz = deckZ + p.offset.y;
-              const top = EY(elevationProject({ x: 0, y: leg.a.y, z: cz + p.size.y / 2 }));
-              const bot = EY(elevationProject({ x: 0, y: leg.a.y, z: cz - p.size.y / 2 }));
+              const top = EY(elevationProject({ x: leg.a.x, y: leg.a.y, z: cz + p.size.y / 2 }));
+              const bot = EY(elevationProject({ x: leg.a.x, y: leg.a.y, z: cz - p.size.y / 2 }));
               const halfW = (p.size.z / 2) * elFit.unitsPerMetre;
-              const cx = EX(elevationProject({ x: 0, y: leg.a.y, z: 0 }));
+              const cx = EX(elevationProject({ x: leg.a.x, y: leg.a.y, z: 0 }));
               return (
                 <rect
                   key={`${leg.id}-${i}`}
@@ -219,6 +226,6 @@ export function StructureSheet({ project }: { project: Project }) {
       />
 
       <TitleBlock size="a3" rows={rows} />
-    </Sheet>
+    </Sheet><MmsDetailSheet project={project} structures={structures} /></>
   );
 }

@@ -112,7 +112,9 @@ export function panelPose(
         ? -((panel.azimuthDeg * Math.PI) / 180)
         : ((roof ? roofGridAngle(roof) : 0) * Math.PI) / 180;
 
-  const heightAboveSurfaceM = sloped
+  const heightAboveSurfaceM = seg?.mms && seg.racking.kind === 'flush'
+    ? .1 + MODULE_STANDOFF_M
+    : sloped
     ? FLUSH_STANDOFF_M
     : racking
       ? racking.kind === 'tracker_hsat'

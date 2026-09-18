@@ -1,0 +1,65 @@
+{
+  "summary": "Frontend-focused MMS verification completed: rebuilt app, added focused Vitest MMS regression suite, and executed targeted browser checks. Core MMS library regressions passed; UI flow to Table MMS controls was not reliably reachable in automation; external data APIs returned 502 during Step 6 session.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Step6Editor table selection/context actions",
+        "issue": "Could not reliably open 'Table settings' -> table-mms-* controls in automation despite seeded valid table; no stable data-testid path for selecting table from plan view context flow.",
+        "selector": "button[aria-label='Table settings'], plan interaction area",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Step 6 location-backed data fetches",
+        "issue": "External preview returned 502 for /api/pvgis, /api/pvgis/tmy, and /api/solar/data-layers during test run.",
+        "affected_selectors": []
+      },
+      {
+        "flow": "Map/static imagery",
+        "issue": "Google Maps static map requests had empty key and returned 403; Places API also reported InvalidKey/NoApiKeys warnings.",
+        "affected_selectors": ["Location map/static imagery"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Dashboard",
+        "issues": [
+          "No horizontal overflow observed at 320/768/1024/1440 in tested state."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/src/features/solar-studio/lib/__tests__/mms-regression-focused.test.ts",
+    "/app/regression.log"
+  ],
+  "action_items": [
+    "Investigate and fix 502 responses for /api/pvgis, /api/pvgis/tmy, /api/solar/data-layers on preview deployment.",
+    "Provide deterministic Step6 table-selection test hooks (data-testid on table target/context trigger) so table-mms-* and scene-mms-* workflows are automation-reachable.",
+    "Validate Google Maps key configuration in preview (Places + Static Maps).",
+    "After fixes, retest full browser MMS flow: Generate MMS, Basic/Advanced/Engineering tabs, scene inspector, undo/reload."
+  ],
+  "critical_code_review_comments": [
+    "Scene3D.tsx is ~5800+ lines; exceeds maintainability threshold and should be split into focused modules.",
+    "Step6 table/MMS interaction path is hard to automate due missing stable selectors on key interaction targets; add data-testid per testing contract.",
+    "Build has React hook dependency warnings (Step2Roof, Step6Editor, Scene3D); verify memo dependencies to avoid stale derivations."
+  ],
+  "updated_files": [
+    "/app/src/features/solar-studio/lib/__tests__/mms-regression-focused.test.ts",
+    "/app/test_reports/iteration_1.json"
+  ],
+  "success_rate": {
+    "backend": "N/A (skipped)",
+    "frontend": "70%"
+  },
+  "seed_data_creation": "Created browser localStorage seeded project during UI automation only (test-session scoped, not committed to source).",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New focused MMS regression file exists and passes (9 tests). Combined targeted MMS suite run passed 143/143. UI seeded Step6 run reached /wizard/6 and 3D view rendered meaningful non-blank model, but table settings/mms control path remained non-deterministic in automation. Use stronger selectors/hooks for table selection and rerun browser flow.",
+  "rca of the issue": "RCA 1: Preview integration endpoints (/api/pvgis*, /api/solar/data-layers) returned 502 in browser console, causing data-service degradation in Step6 context. RCA 2: Step6 MMS panel is reachable through context-sensitive selection flow lacking deterministic selectors for table selection/open action, causing flaky/unreachable automation path. Mitigation: deploy endpoint fix + add explicit data-testid hooks on table target and 'Table settings' trigger states."
+}

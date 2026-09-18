@@ -1,3 +1,27 @@
+/* MMS extends the existing instrument/editor palette. */
+.mms-config { margin: 16px 0; border-top: 1px solid var(--editor-line, #504c43); padding-top: 14px; font-size: 12px; line-height: 1.5; min-width: 0; letter-spacing: 0; }
+.mms-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.mms-heading span { margin-left: auto; font-size: 12px; opacity: .7; }
+.mms-tabs { display: flex; gap: 3px; border-bottom: 1px solid #7776; margin-bottom: 12px; }
+.mms-tabs button { display: flex; align-items: center; justify-content: center; flex: 1; gap: 5px; min-height: 32px; padding: 6px 3px; color: inherit; font-size: 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; cursor: pointer; transition: background-color .15s; }
+.mms-tabs button:hover { background: #c8842a22; }
+.mms-tabs button[aria-selected="true"] { border-bottom-color: #ce8b2f; color: #d9a24e; }
+.mms-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; min-width: 0; font-size: 12px; }
+.mms-field input, .mms-field select, .mms-field textarea { min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 32px; border: 1px solid #85807880; border-radius: 4px; background: var(--editor-bg, #24231f); color: inherit; padding: 5px 8px; font-size: 12px; }
+.mms-field select option { background: #24231f; color: #f5f3ed; }
+.mms-field input[type="checkbox"] { width: 18px; height: 18px; min-height: 18px; accent-color: #c8842a; }
+.mms-height-presets { display: flex; gap: 6px; flex-wrap: wrap; }
+.mms-height-presets .btn { flex: 1; min-width: 42px; min-height: 28px; font-size: 12px; padding: 4px; }
+.mms-section { border-top: 1px solid #85807840; padding: 10px 0; }
+.mms-section summary { cursor: pointer; min-height: 24px; font-size: 12px; font-weight: 600; }
+.mms-metrics { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px 12px; margin: 12px 0; }
+.mms-metrics dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.mms-metrics dt { opacity: .8; }
+.mms-findings { max-height: 220px; overflow-y: auto; }
+.mms-finding { display: flex; align-items: flex-start; gap: 8px; padding: 6px 0; overflow-wrap: anywhere; }
+.mms-finding.error { color: #ff9990; }.mms-finding.warning, .mms-finding.not_calculated { color: #e7bf7b; }.mms-finding.pass { color: #8bd5a7; }
+.mms-note { font-size: 12px; opacity: .8; margin: 8px 0; overflow-wrap: anywhere; }
+.mms-check { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid #85807840; }.mms-check small { font-size: 12px; opacity: .75; }
 /* ─── Solar Design Studio — professional design system ───────────────────── */
 :root {
   --ink: #0f1215;

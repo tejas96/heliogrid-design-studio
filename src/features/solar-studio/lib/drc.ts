@@ -14,6 +14,7 @@ import { panelCornersOnRoof } from './layout';
 import { requiredBridgeClearanceM, resolveCapabilities } from './capabilities';
 import { resolveRacking } from './structure';
 import { deriveStructures } from './derive/structures';
+import { validateMms } from './mms/validate';
 import {
   foundationDeadLoadKg,
   foundationKindOfSpec,
@@ -247,7 +248,7 @@ function walkwayQuad(w: Project['walkways'][number]): XY[] {
  *     buildable steel leg. Flagged, never silently clamped.
  */
 export function structureIssues(project: Project, spec: PanelSpec | null): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
+  const issues: ValidationIssue[] = validateMms(project, deriveStructures(project)).filter(f => f.status !== 'pass').map(f => ({ level: f.status === 'error' ? 'error' : 'warn', code: `mms_${f.code}`, message: f.message }));
   if (!spec) return issues;
 
   const structures = deriveStructures(project);
@@ -267,7 +268,7 @@ export function structureIssues(project: Project, spec: PanelSpec | null): Valid
       if (n.kind !== 'roof_anchor') continue;
       // shape matters: a circular pedestal is ~21% less concrete than a square
       // one of the same nominal size, so the reported load must follow it
-      kg += foundationDeadLoadKg(foundationKindOfSpec(n.fastenerSpec), st.foundationShape);
+      kg += foundationDeadLoadKg(foundationKindOfSpec(n.fastenerSpec), st.foundationShape, st.mms);
     }
     if (kg > 0) loadByRoof.set(roof.id, (loadByRoof.get(roof.id) ?? 0) + kg);
   }
@@ -305,7 +306,7 @@ export function structureIssues(project: Project, spec: PanelSpec | null): Valid
     for (const n of st.nodes) {
       if (n.kind !== 'roof_anchor') continue;
       const kind = foundationKindOfSpec(n.fastenerSpec);
-      const r = ruleFor(kind);
+      const r = ruleFor(kind, st.foundationShape, st.mms);
       // footprint of the foundation itself, not a point — a 300 mm pedestal
       // clipping the edge of a walkway still blocks the walkway
       const size = r.shape === 'circular' ? (r.d ?? 0) / 1000 : (r.l ?? 0) / 1000;

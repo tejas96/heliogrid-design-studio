@@ -2,6 +2,7 @@
 // Every entity in a project. The store, the editors, the 3D scene, the SLD,
 // the drawings and the BOM engine all read from this single shape.
 import type { SiteFrame, LatLng } from './lib/site/types';
+import type { MmsConfig, MmsEngineeringInputs } from './lib/mms/types';
 
 // LatLng lives in lib/site/types.ts — SiteFrame is built on it, and defining it
 // here made the two files import each other. Re-exported so every other file can
@@ -623,6 +624,8 @@ export interface StructureDefaults {
  */
 export interface ArraySegment {
   id: string;
+  /** Additional mounting intent, never a duplicate of racking/module geometry. */
+  mms?: MmsConfig;
   roofId: string;
   label: string; // auto 'A1','A2'… (assigned on insert)
   polygon: XY[]; // fill region, local metres (rectangle ⇒ a "table")
@@ -1291,6 +1294,7 @@ export interface Project {
   installation?: { stepStates: Record<string, boolean> };
   /** project-wide structure defaults (Phase 7) — segment racking wins */
   structureDefaults?: StructureDefaults;
+  mmsEngineering?: MmsEngineeringInputs;
   /** engineer sign-off gate for structure outputs (plan §F boundary) —
    *  absent = pending. NEVER a calculation: a human engineer flips this. */
   structuralVerification?: { status: 'pending' | 'engineer_approved'; notes: string };

@@ -127,6 +127,8 @@ export function layoutFp(p: Project): string {
     // byte-identical while still re-keying a design whose legs have moved —
     // and moving a leg moves steel, which moves the quote.
     p.segments.map((s) => (s.legPlan ? `|lp:${s.id}:${JSON.stringify(s.legPlan.points)}` : '')).join('') +
+    p.segments.map((s) => s.mms ? `|mms:${s.id}:${JSON.stringify(s.mms)}` : '').join('') +
+    (p.mmsEngineering ? `|engineering:${JSON.stringify(p.mmsEngineering)}` : '') +
     // STRUCTURE MODEL VERSION — deliberately UNCONDITIONAL, like the catalog
     // version in designFp and for the same reason.
     //

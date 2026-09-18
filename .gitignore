@@ -35,3 +35,8 @@ tsconfig.tsbuildinfo
 # Agent scratch: per-session task briefs, progress notes and review diffs.
 # Regenerable, and none of it is source.
 .superpowers/
+*.env
+credentials.json
+*.pem
+*.key
+.credentials

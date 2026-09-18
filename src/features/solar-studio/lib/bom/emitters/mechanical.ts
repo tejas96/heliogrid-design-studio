@@ -8,6 +8,8 @@ import { foundationDeadLoadKg, foundationVolumeM3, ruleFor } from '../../foundat
 import { resolveTrackerAxis, trackerRowsFrom } from '../../energy/tracker';
 import { panelFootprintM } from '../../layout';
 import { resolveRacking } from '../../structure';
+import { fastenerTotals } from '../../structure';
+import { emitMms } from './mms';
 
 /** Plural-safe member phrase, e.g. "12 legs 4.2m". Omits absent kinds. */
 function memberBreakdown(st: SegmentStructure): string {
@@ -117,7 +119,6 @@ export function emitMechanical(ctx: BomContext): BomLine[] {
     spec,
     n,
     structures,
-    fasteners: ft,
     nStructured,
     nFlatRcc,
     nGround,
@@ -130,7 +131,8 @@ export function emitMechanical(ctx: BomContext): BomLine[] {
     groundRoofIdList,
     pricebook: PRICE_BOOK,
   } = ctx;
-  const out: BomLine[] = [];
+  const out: BomLine[] = emitMms(ctx);
+  const ft = fastenerTotals(structures.filter(s => !s.mms));
 
   const roofOfSegment = (segmentId: string) =>
     project.segments.find((sg) => sg.id === segmentId)?.roofId;
@@ -155,6 +157,7 @@ export function emitMechanical(ctx: BomContext): BomLine[] {
       }
     >();
     for (const st of structures) {
+      if (st.mms) continue; // detailed lines above already consume this graph
       const seg = project.segments.find((sg) => sg.id === st.segmentId);
       if (!seg) continue;
       // A MONORAIL segment is flush, so it has no `racking.profile` — its

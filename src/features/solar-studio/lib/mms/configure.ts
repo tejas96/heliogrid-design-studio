@@ -1,0 +1,46 @@
+import type { Project } from '../../types';
+import type { MmsConfig, MountStrategy } from './types';
+import { defaultMms, MOUNT_CATALOGUE } from './catalogue';
+import { setSegmentAzimuth, setSegmentRacking, setSegmentStructureFields, setSegmentTilt } from '../segment-ops';
+import { COL_STRIDE } from '../layout';
+import { reconcileBridgedPanels } from '../structure-edit';
+
+/** One undoable patch, reusing the existing placement/bridging operations. */
+export function configureMms(project: Project, segmentId: string, strategy?: MountStrategy, edit?: Partial<MmsConfig>): Partial<Project> {
+  let seg = project.segments.find(s => s.id === segmentId);
+  const roof = project.roofs.find(r => r.id === seg?.roofId);
+  const spec = project.components.panel;
+  if (!seg || !roof || !spec) return {};
+  let panels = project.panels;
+  const mms = { ...(seg.mms ?? defaultMms(roof.roofType)), ...edit };
+  seg = { ...seg, mms };
+  if (strategy) {
+    const preset = MOUNT_CATALOGUE.find(p => p.id === strategy && p.roofs.includes(roof.roofType));
+    if (!preset) return {};
+    mms.strategy = strategy;
+    const kind = preset.flush || roof.pitchDeg > 0 ? 'flush' : strategy === 'east_west' ? 'dual_tilt' : 'fixed_tilt';
+    ({ segment: seg, panels } = setSegmentRacking(roof, spec, seg, panels, kind));
+    if (kind === 'flush' && roof.pitchDeg > 0) ({ segment: seg, panels } = setSegmentAzimuth(seg, panels, roof.slopeAzimuthDeg));
+    if (preset.tilt && kind !== 'flush') ({ segment: seg, panels } = setSegmentTilt(spec, seg, panels, preset.tilt));
+    if (kind !== 'flush') {
+      seg = setSegmentStructureFields(seg, {
+        clearanceM: preset.heightM ?? .45,
+        foundation: strategy === 'rcc_ballast' ? 'ballast' : 'anchor',
+      });
+    }
+    if (strategy === 'east_west' || strategy === 'south_facing') {
+      ({ segment: seg, panels } = setSegmentAzimuth(seg, panels, strategy === 'east_west' ? 90 : 180));
+    }
+  }
+  seg = { ...seg, mms };
+  panels = panels.map(p => p.segmentId === seg!.id ? { ...p, azimuthDeg: mmsFacing(seg!.azimuthDeg, seg!.racking.kind, p.cellIndex) } : p);
+  const patch = { segments: project.segments.map(s => s.id === segmentId ? seg! : s), panels };
+  const reconciled = reconcileBridgedPanels(project, patch);
+  return { ...patch, panels: reconciled ?? panels };
+}
+
+/** Alternating row facing is derived, not a second persisted module orientation. */
+export function mmsFacing(azimuthDeg: number, kind: string, cellIndex?: number): number {
+  return kind === 'dual_tilt' && Math.floor((cellIndex ?? 0) / COL_STRIDE) % 2 === 1
+    ? (azimuthDeg + 180) % 360 : azimuthDeg;
+}

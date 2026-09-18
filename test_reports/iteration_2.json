@@ -1,0 +1,73 @@
+{
+  "summary": "Executed rebuild + targeted API and browser MMS retest on external preview. API bridge endpoints passed. MMS table-picker flow works and core Basic/strategy switching persisted after reload, but 3D struct inspector path and BOM UNPRICED visibility did not pass in UI verification.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Scene3D open + StructEditPanel",
+        "issue": "After triggering 'Open 3D shadow view', deterministic StructEditPanel opening via scene clicks could not be achieved in 3 attempts; mms-structure-inspector and mms-component-picker were not reachable.",
+        "selector": "button[aria-label='Open 3D shadow view'], [data-testid='mms-structure-inspector'], [data-testid='mms-component-picker']",
+        "priority": "CRITICAL"
+      },
+      {
+        "component": "Step9 BOM MMS lines",
+        "issue": "UNPRICED label was not visible in rendered BOM UI during seeded MMS scenarios where unpriced MMS hardware is expected.",
+        "selector": "Step9 BOM rows/spec fields",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "MMS engineering input completion",
+        "issue": "Engineering wind-pressure line remained 'Not calculated' in UI after setting V and k1-k4 during automation path; commit pathway likely not persisting from current field interaction flow.",
+        "affected_selectors": [
+          "[data-testid='table-mms-basicWindSpeedMs']",
+          "[data-testid='table-mms-riskFactorK1']",
+          "[data-testid='table-mms-terrainHeightFactorK2']",
+          "[data-testid='table-mms-topographyFactorK3']",
+          "[data-testid='table-mms-importanceFactorK4']",
+          "[data-testid='table-mms-wind-pressure']"
+        ]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Step 6 top banner",
+        "issues": [
+          "Stress edits produced large conflict banners (e.g., many roof-boundary clashes); feedback is visible (good) but can dominate workflow readability on high panel counts."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_api_bridge_mms.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Fix/regression-test 3D toggle + pick workflow so scene click reliably opens StructEditPanel and mms-component-picker.",
+    "Ensure MMS BOM spec line renders UNPRICED label visibly in Step9 for zero-priced MMS hardware rows.",
+    "Validate engineering field commit lifecycle so reference pressure updates when required inputs are provided.",
+    "After fixes, rerun full 3D proof: visible rails/braces/anchors with one confirmed 3D artifact capture."
+  ],
+  "critical_code_review_comments": [
+    "Scene3D.tsx remains extremely large (well beyond 700 lines), increasing risk in interaction regressions (toggle/pick paths).",
+    "Most interactive controls still lack data-testid attributes outside MMS-specific additions, reducing deterministic UI testability across core flows.",
+    "Hook dependency warnings from build are still present (Step2Roof, Step6Editor, Scene3D)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_api_bridge_mms.py",
+    "/app/test_reports/iteration_2.json"
+  ],
+  "success_rate": {
+    "backend": "100%",
+    "frontend": "55%"
+  },
+  "seed_data_creation": "Created TEST-ONLY seeded browser storage fixture (solar-studio-v1 migration path) with 2 roofs, 2 segments, and 248 panels for stress testing. No production data modified.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend API bridge is healthy on preview. Step6 mms-table-picker + selected-table-settings path is functional and persistence/undo path partly validated. Remaining blockers are 3D struct inspector determinism and missing UNPRICED visibility in BOM UI. Use artifact /app/test_reports/artifacts/final_20260918_141421.jpeg as latest rooftop stress snapshot (not validated as successful 3D inspector state).",
+  "rca of the issue": "RCA-1: 3D interaction path remains non-deterministic from automation despite deterministic table selector updates; likely scene pick/event routing or mode state prevents StructEditPanel opening from click targets. Repro: seed fixture -> wizard/6 -> generate MMS -> open 3D -> click likely members; inspector not opened in 3 attempts. RCA-2: MMS BOM emitter prefixes UNPRICED in spec/formula, but Step9 UI did not surface UNPRICED in tested render path; likely presentation/filtering issue in BOM row/spec rendering under current state. RCA-3: Engineering panel data entry in automation did not produce computed pressure in UI line, suggesting value commit coupling to component-specific interaction lifecycle."
+}

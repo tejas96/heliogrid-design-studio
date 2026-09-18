@@ -188,7 +188,7 @@ export function reindexSegment(
     maxRow = Math.max(maxRow, row);
     maxCol = Math.max(maxCol, col);
     occupied.add(row * COL_STRIDE + col);
-    return { ...p, cellIndex: row * COL_STRIDE + col };
+    return { ...p, cellIndex: row * COL_STRIDE + col, ...(seg.mms && seg.racking.kind === 'dual_tilt' ? { azimuthDeg: (seg.azimuthDeg + (row % 2 ? 180 : 0)) % 360 } : {}) };
   });
 
   const rows = maxRow + 1;
@@ -549,6 +549,7 @@ function elevatedRacking(
     ? Math.max(prev?.rowPitchM ?? 0, slantM / TRACKER_DEFAULT_GCR)
     : (prev?.rowPitchM ?? 0);
   return {
+    ...(prev ?? {}),
     kind,
     tiltDeg,
     rowPitchM: pitch,
@@ -637,9 +638,13 @@ export function setSegmentAzimuth(
   azimuthDeg: number,
 ): { segment: ArraySegment; panels: PlacedPanel[] } {
   const az = ((Math.round(azimuthDeg) % 360) + 360) % 360;
+  const mine = panels.filter(p => p.segmentId === seg.id);
+  const center = { x: mine.reduce((v, p) => v + p.center.x, 0) / Math.max(1, mine.length), y: mine.reduce((v, p) => v + p.center.y, 0) / Math.max(1, mine.length) };
+  const turn = (p: XY): XY => { const v = rotate({ x: p.x - center.x, y: p.y - center.y }, seg.azimuthDeg - az); return { x: center.x + v.x, y: center.y + v.y }; };
+  const rotated = seg.mms && seg.racking.kind !== 'flush';
   return {
-    segment: { ...seg, azimuthDeg: az },
-    panels: panels.map((p) => (p.segmentId === seg.id ? { ...p, azimuthDeg: az } : p)),
+    segment: { ...seg, azimuthDeg: az, ...(rotated ? { polygon: seg.polygon.map(turn) } : {}) },
+    panels: panels.map((p) => (p.segmentId === seg.id ? { ...p, ...(rotated ? { center: turn(p.center) } : {}), azimuthDeg: seg.mms && seg.racking.kind === 'dual_tilt' && Math.floor((p.cellIndex ?? 0) / COL_STRIDE) % 2 ? (az + 180) % 360 : az } : p)),
   };
 }
 

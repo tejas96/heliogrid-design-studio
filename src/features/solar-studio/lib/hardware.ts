@@ -11,6 +11,7 @@
 // representation, not engineering — no quantity is ever read back from them.
 import type { FoundationPart } from './foundation';
 import type { NodeKind } from './structure';
+import type { MmsConfig } from './mms/types';
 
 const MM = 0.001;
 
@@ -21,8 +22,35 @@ const MM = 0.001;
  * `foundationAssembly` already owns it. Returning [] here for it keeps the two
  * from ever drawing the same thing twice.
  */
-export function nodeHardware(kind: NodeKind): FoundationPart[] {
+export function nodeHardware(kind: NodeKind, mms?: MmsConfig, boltCount?: number): FoundationPart[] {
+  const parts = nominalNodeHardware(kind, mms);
+  if (!mms || boltCount === undefined) return parts;
+  const filtered = parts.filter(p => p.bucket !== 'bolt');
+  const count = Math.min(16, Math.max(0, boltCount));
+  for (let i = 0; i < count; i++) filtered.push({ bucket: 'bolt', geometry: 'cylinder', size: { x: .012, y: .018, z: .012 }, offset: { x: count === 1 ? 0 : (i % 2 ? .024 : -.024), y: kind.startsWith('panel_clamp') ? .044 : .016, z: count > 2 ? (Math.floor(i / 2) ? .012 : -.012) : 0 } });
+  return filtered;
+}
+function nominalNodeHardware(kind: NodeKind, mms?: MmsConfig): FoundationPart[] {
+  if (kind === 'sheet_standoff' && mms) {
+    const base: FoundationPart = { bucket: 'standoff', geometry: 'box', size: { x: .05, y: .08, z: .012 }, offset: { x: 0, y: .05, z: 0 } };
+    if (['standing_seam', 'clamp_mounted'].includes(mms.strategy)) return [
+      { ...base, size: { x: .026, y: .05, z: .065 }, offset: { x: -.021, y: .035, z: 0 } },
+      { ...base, size: { x: .026, y: .05, z: .065 }, offset: { x: .021, y: .035, z: 0 } },
+      { bucket: 'bolt', geometry: 'cylinder', size: { x: .012, y: .03, z: .012 }, offset: { x: 0, y: .08, z: 0 } },
+    ];
+    if (['roof_hook', 'adjustable_hook'].includes(mms.strategy)) return [
+      { ...base, size: { x: .12, y: .006, z: .035 }, offset: { x: -.035, y: .006, z: 0 } },
+      { ...base, size: { x: .006, y: .085, z: .035 }, offset: { x: .025, y: .05, z: 0 } },
+      { ...base, size: { x: .05, y: .006, z: .035 }, offset: { x: 0, y: .095, z: 0 } },
+    ];
+  }
   switch (kind) {
+    case 'rail_splice':
+      return [{ bucket: 'plate', geometry: 'box', size: { x: .2, y: .003, z: .035 }, offset: { x: 0, y: -.02, z: 0 } }];
+    case 'bonding_lug':
+      return [{ bucket: 'clamp', geometry: 'box', size: { x: .025, y: .01, z: .02 }, offset: { x: 0, y: -.02, z: .025 } }];
+    case 'cable_clip':
+      return [{ bucket: 'clamp', geometry: 'box', size: { x: .015, y: .025, z: .006 }, offset: { x: 0, y: -.02, z: .025 } }];
     // A mid clamp bridges two modules and sits ON the rail, so it straddles the
     // node rather than hanging under it.
     case 'panel_clamp_mid':

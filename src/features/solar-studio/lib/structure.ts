@@ -27,8 +27,10 @@ import { resolveRules } from '../data/rules/india';
 import { ruleFor } from './foundation';
 import { rotate } from './geo';
 import { segmentFrameAngle } from './segment-ops';
-import { isSloped } from './roof-plane';
+import { isSloped, surfaceHeightAt } from './roof-plane';
 import { STRUCTURE_PROFILES } from '../data/profiles';
+import type { MmsConfig } from './mms/types';
+import { enrichMmsStructure } from './mms/generate';
 
 /**
  * Vertical offset from the member AXIS plane (leg tops = rafter/purlin
@@ -263,12 +265,13 @@ export interface XYZ {
   z: number;
 }
 
-type MemberKind =
+export type MemberKind =
   | 'front_leg'
   | 'back_leg'
   | 'rafter'
   | 'purlin'
   | 'brace'
+  | 'beam'
   /** metal-shed monorail: a rail running along a module row, on standoffs */
   | 'rail';
 export type NodeKind =
@@ -279,18 +282,22 @@ export type NodeKind =
   | 'panel_clamp_mid'
   | 'brace_bolt'
   /** L-foot through the sheet crown into the purlin, with a sealing washer */
-  | 'sheet_standoff';
+  | 'sheet_standoff'
+  | 'rail_splice'
+  | 'bonding_lug'
+  | 'cable_clip';
 
 export interface Member {
   id: string; // `${seg.id}/m/<kind>/<idx>` — structural, deterministic
   kind: MemberKind;
   profileKey: string;
+  profile?: StructureProfile;
   a: XYZ;
   b: XYZ;
   lengthM: number;
 }
 
-interface StructureNode {
+export interface StructureNode {
   id: string; // `${seg.id}/n/<kind>/<idx>`
   kind: NodeKind;
   position: XYZ;
@@ -315,6 +322,7 @@ interface StructureNode {
 
 export interface SegmentStructure {
   segmentId: string;
+  mms?: MmsConfig;
   members: Member[];
   nodes: StructureNode[];
   /** the resolved foundation this table stands on — stamped here so the
@@ -324,7 +332,7 @@ export interface SegmentStructure {
   foundationShape: FoundationShape;
   steelKg: number;
   /** total member metres per kind — the BOM formula breakdown */
-  memberSummary: Record<MemberKind, { count: number; totalM: number }>;
+  memberSummary: Record<Exclude<MemberKind, 'beam'>, { count: number; totalM: number }> & { beam?: { count: number; totalM: number } };
   warnings: string[];
 }
 
@@ -450,7 +458,7 @@ export function buildStructure(
   panels: PlacedPanel[],
 ): SegmentStructure {
   const warnings: string[] = [];
-  if (racking.kind === 'dual_tilt') {
+  if (racking.kind === 'dual_tilt' && !seg.mms) {
     warnings.push(
       'Dual-tilt is modeled with fixed-tilt structure topology in v1 — tonnage is approximate.',
     );
@@ -467,12 +475,12 @@ export function buildStructure(
   const azRad = (seg.azimuthDeg * Math.PI) / 180;
   // unit vector the modules FACE (their down-tilt edge points this way);
   // north = +y in the local EN frame, so azimuth 0=N ⇒ (0,1), 180=S ⇒ (0,-1)
-  const down = { x: Math.sin(azRad), y: Math.cos(azRad) };
+  let down = { x: Math.sin(azRad), y: Math.cos(azRad) };
   const dz = roof.heightM;
   // height the foundation occupies above the deck (D15 — see the leg emission
   // below). `anchor`, the historical default, is 0, so this is a no-op until a
   // project selects a pedestal or ballast block.
-  const foundH = ruleFor(racking.foundation).heightMm / 1000;
+  const foundH = ruleFor(racking.foundation, racking.foundationShape, seg.mms).heightMm / 1000;
 
   // The frame a saved leg plan is stored in — the segment's own, shared with
   // the panel lattice (22i/E3). Computed once; harmless when there is no plan.
@@ -516,7 +524,9 @@ export function buildStructure(
     nodes.push({ id: `${seg.id}/n/${kind}/${idx - 1}`, kind, position, memberIds, fastenerSpec });
   };
 
-  for (const [, rowPanels] of [...byRow.entries()].sort((a, b) => a[0] - b[0])) {
+  for (const [row, rowPanels] of [...byRow.entries()].sort((a, b) => a[0] - b[0])) {
+    const direction = seg.mms && racking.kind === 'dual_tilt' && row % 2 ? -1 : 1;
+    down = { x: Math.sin(azRad) * direction, y: Math.cos(azRad) * direction };
     // contiguous runs by column index
     const sorted = rowPanels.sort(
       (a, b) => (a.cellIndex! % COL_STRIDE) - (b.cellIndex! % COL_STRIDE),
@@ -768,7 +778,7 @@ export function buildStructure(
     nodes,
     foundation: racking.foundation,
     foundationShape: racking.foundationShape,
-    steelKg,
+      steelKg,
     memberSummary,
     warnings,
   };
@@ -877,7 +887,7 @@ function buildMonorail(
 
   const rules = resolveRules();
   const purlinPitchM =
-    roof.structureOverride?.purlinPitchM ??
+    seg.mms?.attachmentSpacingM ?? roof.structureOverride?.purlinPitchM ??
     project.structureDefaults?.purlinPitchM ??
     rules.sheet.purlinPitchM;
   const railProfile =
@@ -945,22 +955,25 @@ function buildMonorail(
 
       // one rail under each module edge — the pair a flush module clamps to
       for (const side of [1, -1]) {
-        const cx = mid.x + (down.x * h * side) / 2;
-        const cy = mid.y + (down.y * h * side) / 2;
+        const inset = seg.mms?.railInsetRatio ?? 0;
+        const depth = h * Math.cos(roof.pitchDeg * Math.PI / 180) * (1 - 2 * inset);
+        const cx = mid.x + (down.x * depth * side) / 2;
+        const cy = mid.y + (down.y * depth * side) / 2;
         const a = { x: cx - along.x * half, y: cy - along.y * half, z: railZ };
         const b = { x: cx + along.x * half, y: cy + along.y * half, z: railZ };
+        if (seg.mms) { a.z = surfaceHeightAt(roof, a) + .1; b.z = surfaceHeightAt(roof, b) + .1; }
         const rail = addMember('rail', a, b);
 
         // Standoffs land on purlin centres. NEVER fewer than the rule's floor:
         // a rail on one foot is a lever, and the arithmetic can ask for that on
         // a short run (E15).
-        const spans = Math.max(1, Math.ceil(runLen / purlinPitchM));
+        const spans = Math.max(1, Math.ceil(runLen / Math.max(.15, purlinPitchM)));
         const count = Math.max(rules.sheet.minStandoffsPerRail, spans + 1);
         for (let i = 0; i < count; i++) {
           const t = count === 1 ? 0 : (i / (count - 1)) * runLen - half;
           addNode(
             'sheet_standoff',
-            { x: cx + along.x * t, y: cy + along.y * t, z: roof.heightM },
+            { x: cx + along.x * t, y: cy + along.y * t, z: seg.mms ? surfaceHeightAt(roof, { x: cx + along.x * t, y: cy + along.y * t }) : roof.heightM },
             [rail.id],
             { standoffs: 1, sealingWashers: 1, bolts: 2 },
           );
@@ -973,7 +986,7 @@ function buildMonorail(
           const t = -half + k * (w + seg.moduleGapM) - seg.moduleGapM / 2;
           addNode(
             'panel_clamp_mid',
-            { x: cx + along.x * t, y: cy + along.y * t, z: railZ },
+            { x: cx + along.x * t, y: cy + along.y * t, z: seg.mms ? surfaceHeightAt(roof, { x: cx + along.x * t, y: cy + along.y * t }) + .1 : railZ },
             [rail.id],
             { clamps: 1 },
           );
@@ -1040,15 +1053,15 @@ export function projectStructures(project: Project): SegmentStructure[] {
     // line. `topologyOf` is the same predicate the structure UI gates on, so
     // what is offered and what is built cannot disagree.
     const topo = topologyOf(roof, seg);
-    if (topo === 'sheet_monorail') {
+    if (topo === 'sheet_monorail' || (seg.mms && seg.racking.kind === 'flush')) {
       const s = buildMonorail(seg, spec, roof, project, project.panels);
-      if (s.members.length > 0) out.push(s);
+      if (s.members.length > 0) out.push(seg.mms ? enrichMmsStructure(s, seg, spec) : s);
       continue;
     }
     const racking = resolveRacking(project, roof, seg, spec);
     if (!racking) continue;
     const s = buildStructure(seg, spec, roof, racking, project.panels);
-    if (s.members.length > 0) out.push(s);
+    if (s.members.length > 0) out.push(seg.mms ? enrichMmsStructure(s, seg, spec) : s);
   }
   return out;
 }
@@ -1120,13 +1133,15 @@ export function validateStructure(s: SegmentStructure): string[] {
     rafter: ['leg_rafter'],
     purlin: ['rafter_purlin', 'panel_clamp_end'],
     brace: ['brace_bolt'],
+    beam: ['leg_rafter'],
     // a rail with no standoff is a rail resting on nothing. Listed here or the
     // monorail model would validate silently however it was built.
     rail: ['sheet_standoff', 'panel_clamp_end'],
   };
   for (const m of s.members) {
     const kinds = new Set((nodesByMember.get(m.id) ?? []).map((n) => n.kind));
-    for (const req of REQUIRED[m.kind]) {
+    const required = s.mms && m.kind === 'rail' && kinds.has('rafter_purlin') ? ['rafter_purlin', 'panel_clamp_end'] as NodeKind[] : REQUIRED[m.kind];
+    for (const req of required) {
       if (!kinds.has(req)) issues.push(`${m.id}: missing ${req} node — unsupported member`);
     }
   }

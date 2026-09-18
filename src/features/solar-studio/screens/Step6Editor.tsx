@@ -121,6 +121,7 @@ import {
   validateStructure,
 } from '../lib/structure';
 import { StructurePreview } from '../components/StructurePreview';
+import { MmsConfiguration } from '../components/mms/MmsConfiguration';
 import { AccessScale } from '../components/AccessScale';
 import { ModuleCard } from '../components/ModuleCard';
 import { registerAllAnalyzers } from '../lib/insights/analyzers';
@@ -1966,6 +1967,13 @@ export function Step6Editor() {
         role="toolbar"
         aria-label="History and layout actions"
       >
+        {project.segments.length > 0 && <select
+          data-testid="mms-table-picker"
+          aria-label="Select table for MMS settings"
+          value={selectedSegment?.id ?? ''}
+          style={{ width: 'min(130px, 32vw)', minHeight: 32, background: 'var(--editor-bg)', color: 'var(--editor-ink)', border: '1px solid var(--editor-line)', borderRadius: 4, fontSize: 12 }}
+          onChange={e => { if (!e.target.value) return; setSelectedIds(project.panels.filter(p => p.segmentId === e.target.value && p.enabled).map(p => p.id)); setTableSheet(true); }}
+        ><option value="">MMS · Select table</option>{project.segments.map(s => <option key={s.id} value={s.id}>{s.label} · MMS</option>)}</select>}
         <RailBtn
           icon={<Undo2 />}
           label="Undo"
@@ -3010,6 +3018,7 @@ export function Step6Editor() {
               </>
             )}
 
+            {!multi && <MmsConfiguration project={project} segmentId={seg.id} prefix="table-mms" onPatch={p => patch(p, true)} />}
             {/* Row/column delete. Single-table only: marking spans one table's
                 lattice, and "row 3" means nothing across two of them. */}
             {!multi && (
@@ -3643,6 +3652,7 @@ function SelectionContextBar({
                     : 'Table settings — racking, tilt, azimuth, structure'
                 }
                 aria-label={tableCount > 1 ? `Settings for ${tableCount} tables` : 'Table settings'}
+                data-testid="selected-table-settings"
                 onClick={onTableSettings}
               >
                 <Settings2 />
